@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { createContext, useContext, useState, useCallback, useRef } from "react";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
 const AuthContext = createContext(null);
 
@@ -132,7 +132,7 @@ export function AuthProvider({ children }) {
   }
 
   async function logout(sessionId) {
-    const { refresh_token, token_hash } = getStoredAuth();
+    const { refresh_token } = getStoredAuth();
     try {
       await authFetch(`${API}/auth/logout`, {
         method: "POST",

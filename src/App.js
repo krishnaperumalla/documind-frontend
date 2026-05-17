@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import AuthPage       from "./components/AuthPage";
 import Sidebar        from "./components/Sidebar";
@@ -7,9 +7,8 @@ import DocumentPanel  from "./components/Documentpanel";
 import ProfilePanel   from "./components/ProfilePanel";
 import "./App.css";
 import "./auth.css";
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
-// Stable session ID per browser tab (survives component re-mounts but NOT new tabs)
 function getSessionId() {
   let id = sessionStorage.getItem("session_id");
   if (!id) {
@@ -20,7 +19,7 @@ function getSessionId() {
 }
 
 function AppInner() {
-  const { isAuthenticated, authFetch, logout } = useAuth();
+  const { isAuthenticated, authFetch } = useAuth();
   const sessionId = getSessionId();
 
   const [chats, setChats]             = useState([]);
@@ -33,12 +32,36 @@ function AppInner() {
   const [documents, setDocuments]     = useState([]);
   const abortControllerRef            = useRef(null);
 
+  // ── Fetch functions with useCallback ───────────────────────
+  const fetchChats = useCallback(async () => {
+    try {
+      const res  = await authFetch(`${API}/chats`);
+      const data = await res.json();
+      setChats(data);
+    } catch (e) { console.error(e); }
+  }, [authFetch]);
+
+  const fetchDocuments = useCallback(async () => {
+    try {
+      const res  = await authFetch(`${API}/documents?session_id=${sessionId}`);
+      const data = await res.json();
+      setDocuments(data);
+    } catch (e) { console.error(e); }
+  }, [authFetch, sessionId]);
+
+  const fetchChat = useCallback(async (id) => {
+    try {
+      const res  = await authFetch(`${API}/chats/${id}`);
+      const data = await res.json();
+      setActiveChat(data);
+    } catch (e) { console.error(e); }
+  }, [authFetch]);
+
   // ── Cleanup on tab/window close ─────────────────────────────
   useEffect(() => {
     if (!isAuthenticated) return;
 
     async function handleUnload() {
-      // sendBeacon is the only reliable way to fire on tab close
       const { access_token } = {
         access_token: sessionStorage.getItem("access_token"),
       };
@@ -49,50 +72,25 @@ function AppInner() {
         `${API}/documents/cleanup-session`,
         new Blob([payload], { type: "application/json" })
       );
-      // Note: sendBeacon doesn't support custom headers, so we rely on
-      // a separate lightweight endpoint that reads user from body token.
-      // The backend verifies via a special beacon endpoint below.
     }
 
     window.addEventListener("beforeunload", handleUnload);
     return () => window.removeEventListener("beforeunload", handleUnload);
   }, [isAuthenticated, sessionId]);
 
-  // ── Data fetching ────────────────────────────────────────────
+  // ── Initial data fetch ──────────────────────────────────────
   useEffect(() => {
     if (!isAuthenticated) return;
     fetchChats();
     fetchDocuments();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, fetchChats, fetchDocuments]);
 
+  // ── Fetch active chat when changed ─────────────────────────
   useEffect(() => {
     if (activeChatId) fetchChat(activeChatId);
-  }, [activeChatId]);
+  }, [activeChatId, fetchChat]);
 
-  async function fetchChats() {
-    try {
-      const res  = await authFetch(`${API}/chats`);
-      const data = await res.json();
-      setChats(data);
-    } catch (e) { console.error(e); }
-  }
-
-  async function fetchChat(id) {
-    try {
-      const res  = await authFetch(`${API}/chats/${id}`);
-      const data = await res.json();
-      setActiveChat(data);
-    } catch (e) { console.error(e); }
-  }
-
-  async function fetchDocuments() {
-    try {
-      const res  = await authFetch(`${API}/documents?session_id=${sessionId}`);
-      const data = await res.json();
-      setDocuments(data);
-    } catch (e) { console.error(e); }
-  }
-
+  // ── Chat operations ─────────────────────────────────────────
   async function newChat() {
     try {
       const res  = await authFetch(`${API}/chats`, {
@@ -200,6 +198,7 @@ function AppInner() {
     }
   }
 
+  // ── Document operations ─────────────────────────────────────
   async function uploadDocument(file) {
     const formData = new FormData();
     formData.append("file", file);
